@@ -1,0 +1,55 @@
+# barista_shift_bot.py
+
+import asyncio
+from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
+from aiogram.types import ForumTopicClosed
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime, timedelta
+import pytz
+import os
+
+TOKEN = os.getenv("TOKEN")
+FORUM_TOPIC_IDS = {
+    "основной чат": 1,
+    "Надо заказать": 2,
+}
+
+KALININGRAD_TZ = pytz.timezone("Europe/Kaliningrad")
+
+bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher()
+scheduler = AsyncIOScheduler(timezone=KALININGRAD_TZ)
+
+async def send_reminder(chat_id: int, topic_id: int, message: str):
+    await bot.send_message(chat_id=chat_id, message_thread_id=topic_id, text=message)
+
+def schedule_reminders():
+    # ЧЕРНАЯ СРЕДА
+    scheduler.add_job(
+        send_reminder,
+        trigger='cron',
+        day_of_week='wed',
+        hour=7, minute=30,
+        args=[-1000000000000, FORUM_TOPIC_IDS["основной чат"],
+              "@dobro_kld Сегодня ЧЕРНАЯ СРЕДА ☕️ Угощаем наших гостей безлимитным фильтр кофе 😄"]
+    )
+
+    # Напоминание о заявке на закуп
+    scheduler.add_job(
+        send_reminder,
+        trigger='cron',
+        day_of_week='wed,sun',
+        hour=8, minute=10,
+        args=[-1000000000000, FORUM_TOPIC_IDS["Надо заказать"],
+              "‼️ Котики, сегодня нужно отправить заявку к закупу! 🙌 Перепроверяйте информацию перед отправкой! :)"]
+    )
+
+@dp.startup()
+async def on_startup():
+    print("Бот запущен")
+    schedule_reminders()
+    scheduler.start()
+
+if __name__ == "__main__":
+    asyncio.run(dp.start_polling(bot))
