@@ -1,27 +1,28 @@
 # barista_shift_bot.py
 
-import asyncio
-from aiogram import Bot, Dispatcher
-from aiogram.enums import ParseMode
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime
-import pytz
 import os
-from flask import Flask
-import threading
+import asyncio
+from flask import Flask, request
+from aiogram import Bot, Dispatcher, types
+from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import pytz
 
 TOKEN = os.getenv("TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # например: https://barista-bot.cyclic.app
+
+bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher(storage=MemoryStorage())
+
+KALININGRAD_TZ = pytz.timezone("Europe/Kaliningrad")
+scheduler = AsyncIOScheduler(timezone=KALININGRAD_TZ)
+
+CHAT_ID = -1000000000000  # замени на настоящий chat_id
 FORUM_TOPIC_IDS = {
     "основной чат": 1,
     "Надо заказать": 2,
 }
-CHAT_ID = -1000000000000  # Замени на настоящий ID чата
-
-KALININGRAD_TZ = pytz.timezone("Europe/Kaliningrad")
-
-bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher()
-scheduler = AsyncIOScheduler(timezone=KALININGRAD_TZ)
 
 async def send_reminder(chat_id: int, topic_id: int, message: str):
     await bot.send_message(chat_id=chat_id, message_thread_id=topic_id, text=message)
@@ -46,36 +47,27 @@ def schedule_reminders():
 
 @dp.startup()
 async def on_startup():
-    print("Бот запущен")
     schedule_reminders()
     scheduler.start()
+    await bot.set_webhook(WEBHOOK_URL + "/webhook")
 
-# Мини-сервер Flask
+# Flask сервер
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return 'Bot is running!'
+@app.route("/")
+def index():
+    return "Bot is running"
 
-def run_web():
-    app.run(host='0.0.0.0', port=8080)
+@app.route("/webhook", methods=["POST"])
+async def webhook():
+    update = types.Update.model_validate(request.json)
+    await dp.feed_update(bot, update)
+    return "ok"
 
-# Главная точка запуска
-async def main():
-    # запускаем Flask-сервер в отдельном потоке
-    threading.Thread(target=run_web).start()
-    # запускаем бота
-    await dp.start_polling(bot)
+def start():
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
 
 if __name__ == "__main__":
-    asyncio.run(main())
-if __name__ == "__main__":
-    # Сначала запускаем Flask, чтобы Render увидел открытый порт
-    threading.Thread(target=run_web).start()
-
-    # Немного подождём, чтобы Flask успел запуститься
-    import time
-    time.sleep(3)
-
-    # Запускаем бота
-    asyncio.run(main())
+    asyncio.run(dp.startup())
+    start()
